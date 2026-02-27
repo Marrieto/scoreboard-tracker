@@ -13,8 +13,8 @@ COPY frontend/ ./
 RUN npm run build
 
 # ── Stage 2: Backend build ───────────────────────────────────────────
-FROM rust:1.85-alpine AS backend-builder
-RUN apk add --no-cache musl-dev openssl-dev openssl-libs-static pkgconf
+FROM rust:1-alpine AS backend-builder
+RUN apk add --no-cache musl-dev
 WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 COPY src/ src/
@@ -23,8 +23,8 @@ COPY --from=frontend-builder /app/frontend/build ./static
 RUN cargo build --release
 
 # ── Stage 3: Minimal runtime ─────────────────────────────────────────
-FROM alpine:3.21
-RUN apk add --no-cache ca-certificates
+FROM scratch
+COPY --from=backend-builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 WORKDIR /app
 COPY --from=backend-builder /app/target/release/scoreboard ./
 COPY --from=backend-builder /app/static ./static

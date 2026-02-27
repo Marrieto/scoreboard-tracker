@@ -10,12 +10,11 @@ tower-http = { version = "0.6", features = ["fs", "cors", "trace"] }
 tokio = { version = "1", features = ["full"] }
 
 # Azure Table Storage
-azure_data_tables = "0.21"
+azure_data_tables = { version = "0.21", default-features = false, features = ["enable_reqwest_rustls", "hmac_rust"] }
 azure_core = "0.21"
-azure_storage = "0.21"
+azure_storage = { version = "0.21", default-features = false, features = ["enable_reqwest_rustls", "hmac_rust"] }
 
-# Auth - OIDC and JWT
-openidconnect = "4"
+# Auth - JWT
 jsonwebtoken = "9"
 
 # Serialization
@@ -30,6 +29,12 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 thiserror = "2"
 futures = "0.3"
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 urlencoding = "2"
 base64 = "0.22"
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
+opt-level = "z"
