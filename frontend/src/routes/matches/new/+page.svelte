@@ -2,7 +2,10 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { getPlayers, createMatch, type Player } from '$lib/api';
+	import { getLeagueCtx } from '$lib/stores/league.svelte';
 	import { playVictory } from '$lib/sounds.svelte';
+
+	const leagueCtx = getLeagueCtx();
 
 	let players = $state<Player[]>([]);
 	let loading = $state(true);
@@ -18,6 +21,7 @@
 	let winnerScore = $state<string>('');
 	let loserScore = $state<string>('');
 	let comment = $state('');
+	let leagueId = $state<string>('');
 
 	const trashTalkSuggestions = [
 		"Destroyed them at the kitchen line",
@@ -34,6 +38,17 @@
 
 	onMount(async () => {
 		placeholderComment = trashTalkSuggestions[Math.floor(Math.random() * trashTalkSuggestions.length)];
+
+		// Pre-select the active league (or the league from URL context)
+		if (leagueCtx.selectedId) {
+			leagueId = leagueCtx.selectedId;
+		} else {
+			const active = leagueCtx.activeLeagues;
+			if (active.length > 0) {
+				leagueId = active[0].id;
+			}
+		}
+
 		try {
 			players = await getPlayers();
 		} catch (e: any) {
@@ -77,6 +92,7 @@
 				winner_score: winnerScore ? parseInt(winnerScore) : undefined,
 				loser_score: loserScore ? parseInt(loserScore) : undefined,
 				comment: comment || undefined,
+				league_id: leagueId || undefined,
 			});
 			success = true;
 			// Confetti explosion!
@@ -123,6 +139,19 @@
 	<form class="match-form" onsubmit={(e) => { e.preventDefault(); handleSubmit(); }}>
 		{#if error}
 			<div class="error-banner">{error}</div>
+		{/if}
+
+		<!-- League selector -->
+		{#if leagueCtx.leagues.length > 0}
+			<div class="form-section">
+				<h2 class="section-label">🏅 League <span class="optional">(optional)</span></h2>
+				<select bind:value={leagueId} class="select">
+					<option value="">No league</option>
+					{#each leagueCtx.activeLeagues as league}
+						<option value={league.id}>{league.name}</option>
+					{/each}
+				</select>
+			</div>
 		{/if}
 
 		<div class="form-section winners-section">

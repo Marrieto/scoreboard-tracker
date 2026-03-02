@@ -1,21 +1,44 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { getMatches, getPlayers, type MatchRecord, type Player } from '$lib/api';
+	import { getMatches, getPlayers, updateMatch, type MatchRecord, type Player } from '$lib/api';
+	import { getAuth } from '$lib/stores/auth.svelte';
+	import { getLeagueCtx } from '$lib/stores/league.svelte';
 	import MatchCard from '$lib/components/MatchCard.svelte';
+	import MatchEditModal from '$lib/components/MatchEditModal.svelte';
+
+	const auth = getAuth();
+	const leagueCtx = getLeagueCtx();
 
 	let matches = $state<MatchRecord[]>([]);
 	let players = $state<Player[]>([]);
 	let loading = $state(true);
 	let error = $state('');
 
-	onMount(async () => {
+	// Edit modal state
+	let editingMatch = $state<MatchRecord | null>(null);
+
+	async function loadData() {
+		loading = true;
+		error = '';
 		try {
-			[matches, players] = await Promise.all([getMatches(50), getPlayers()]);
+			[matches, players] = await Promise.all([
+				getMatches(50, leagueCtx.selectedId ?? undefined),
+				getPlayers(),
+			]);
 		} catch (e: any) {
 			error = e.message;
 		} finally {
 			loading = false;
 		}
+	}
+
+	onMount(() => {
+		loadData();
+	});
+
+	$effect(() => {
+		const _id = leagueCtx.selectedId;
+		loadData();
 	});
 
 	function playerName(id: string): string {
@@ -23,6 +46,33 @@
 	}
 	function playerEmoji(id: string): string {
 		return players.find((p) => p.id === id)?.avatar_emoji ?? '🏓';
+	}
+
+	function canEditMatch(m: MatchRecord): boolean {
+		if (!auth.info.authenticated) return false;
+		if (auth.info.role === 'admin') return true;
+		const pid = auth.info.player_id;
+		if (!pid) return false;
+		return pid === m.winner1_id || pid === m.winner2_id || pid === m.loser1_id || pid === m.loser2_id;
+	}
+
+	async function handleSaveEdit(updated: MatchRecord) {
+		try {
+			await updateMatch(updated.id, {
+				winner1_id: updated.winner1_id,
+				winner2_id: updated.winner2_id,
+				loser1_id: updated.loser1_id,
+				loser2_id: updated.loser2_id,
+				winner_score: updated.winner_score,
+				loser_score: updated.loser_score,
+				comment: updated.comment,
+				league_id: updated.league_id,
+			});
+			editingMatch = null;
+			await loadData();
+		} catch (e: any) {
+			alert('Failed to save: ' + e.message);
+		}
 	}
 </script>
 
@@ -58,10 +108,21 @@
 					{match}
 					{playerName}
 					{playerEmoji}
+					onEdit={canEditMatch(match) ? () => editingMatch = match : undefined}
 				/>
 			</div>
 		{/each}
 	</div>
+{/if}
+
+{#if editingMatch}
+	<MatchEditModal
+		match={editingMatch}
+		{players}
+		leagues={leagueCtx.leagues}
+		onSave={handleSaveEdit}
+		onClose={() => editingMatch = null}
+	/>
 {/if}
 
 <style>

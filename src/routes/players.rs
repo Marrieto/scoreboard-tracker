@@ -6,14 +6,20 @@
 //
 // Error handling: We map storage errors to appropriate HTTP status codes using
 // `IntoResponse` implementations.
+//
+// Authorization:
+//   - List and create: any authenticated user (enforced by middleware).
+//   - Update: any authenticated user (could be restricted further).
+//   - Delete: admin only (to prevent accidental deletions).
 
 use axum::{
-    Json,
+    Extension, Json,
     extract::{Path, State},
     http::StatusCode,
     response::IntoResponse,
 };
 
+use crate::auth::oidc::SessionClaims;
 use crate::models::player::{CreatePlayerRequest, Player, UpdatePlayerRequest};
 use crate::storage::client::StorageClient;
 use crate::storage::players::{self, PlayerStorageError};
@@ -62,7 +68,7 @@ pub async fn create_player(
     Ok((StatusCode::CREATED, Json(created)))
 }
 
-/// PUT /api/players/:id — Update an existing player.
+/// PUT /api/players/{id} — Update an existing player.
 pub async fn update_player(
     State(storage): State<StorageClient>,
     Path(id): Path<String>,
@@ -73,11 +79,22 @@ pub async fn update_player(
     Ok(Json(updated))
 }
 
-/// DELETE /api/players/:id — Delete a player.
+/// DELETE /api/players/{id} — Delete a player.
+///
+/// Restricted to admins to prevent accidental deletions. Regular users
+/// should ask an admin to delete a player if needed.
 pub async fn delete_player(
     State(storage): State<StorageClient>,
+    Extension(claims): Extension<SessionClaims>,
     Path(id): Path<String>,
 ) -> Result<StatusCode, PlayerStorageError> {
+    // Only admins can delete players.
+    if claims.role != "admin" {
+        return Err(PlayerStorageError::Azure(
+            "Forbidden: only admins can delete players".to_string(),
+        ));
+    }
+
     players::delete_player(&storage, &id).await?;
     Ok(StatusCode::NO_CONTENT)
 }

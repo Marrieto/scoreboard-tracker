@@ -9,6 +9,12 @@
 //   By using (MAX_TIMESTAMP - actual_timestamp) as a prefix, newer matches
 //   get smaller RowKeys and appear first in query results. This avoids
 //   needing to sort client-side.
+//
+// League support:
+//   Matches can optionally belong to a league via the `league_id` field.
+//   Matches without a league_id are "unaffiliated" and always show up in
+//   all-time stats. The `#[serde(default)]` attribute ensures backward
+//   compatibility with existing matches that don't have this field.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -40,11 +46,18 @@ pub struct MatchRecord {
     #[serde(default)]
     pub comment: String,
 
-    /// Who submitted this match result (from auth).
+    /// Who submitted this match result (user OID from auth).
     pub recorded_by: String,
 
     /// When the match was played (ISO 8601).
     pub played_at: DateTime<Utc>,
+
+    /// Optional league this match belongs to. `None` means the match is
+    /// unaffiliated (shows up in all-time stats but not any specific league).
+    /// `#[serde(default)]` ensures backward compat with matches stored before
+    /// the league feature was added — they'll deserialize with `None`.
+    #[serde(default)]
+    pub league_id: Option<String>,
 }
 
 /// Azure Table Storage entity for a match.
@@ -72,6 +85,10 @@ pub struct MatchEntity {
     pub recorded_by: String,
     #[serde(rename = "played_at")]
     pub played_at: String,
+    /// Optional league ID. `#[serde(default)]` handles existing entities
+    /// in storage that don't have this field yet (they deserialize as `None`).
+    #[serde(rename = "league_id", default)]
+    pub league_id: Option<String>,
 }
 
 /// The constant partition key for all matches.
@@ -94,6 +111,8 @@ pub fn generate_match_row_key(played_at: &DateTime<Utc>) -> String {
 
 impl MatchRecord {
     /// Create a new MatchRecord, generating the reverse-timestamp ID.
+    ///
+    /// The `league_id` parameter is optional — pass `None` for unaffiliated matches.
     pub fn new(
         winner1_id: String,
         winner2_id: String,
@@ -104,6 +123,7 @@ impl MatchRecord {
         comment: String,
         recorded_by: String,
         played_at: DateTime<Utc>,
+        league_id: Option<String>,
     ) -> Self {
         let id = generate_match_row_key(&played_at);
         Self {
@@ -117,10 +137,12 @@ impl MatchRecord {
             comment,
             recorded_by,
             played_at,
+            league_id,
         }
     }
 }
 
+/// Convert a domain MatchRecord into an Azure Table Storage entity.
 impl From<MatchRecord> for MatchEntity {
     fn from(m: MatchRecord) -> Self {
         Self {
@@ -135,10 +157,14 @@ impl From<MatchRecord> for MatchEntity {
             comment: m.comment,
             recorded_by: m.recorded_by,
             played_at: m.played_at.to_rfc3339(),
+            league_id: m.league_id,
         }
     }
 }
 
+/// Convert an Azure Table Storage entity back into a domain MatchRecord.
+///
+/// Uses `TryFrom` because the `played_at` date string could be malformed.
 impl TryFrom<MatchEntity> for MatchRecord {
     type Error = chrono::ParseError;
 
@@ -156,11 +182,13 @@ impl TryFrom<MatchEntity> for MatchRecord {
             comment: entity.comment,
             recorded_by: entity.recorded_by,
             played_at,
+            league_id: entity.league_id,
         })
     }
 }
 
 /// Request body for recording a new match.
+/// Separate from MatchRecord so we control exactly what the API accepts.
 #[derive(Debug, Deserialize)]
 pub struct CreateMatchRequest {
     pub winner1_id: String,
@@ -173,4 +201,28 @@ pub struct CreateMatchRequest {
     pub comment: String,
     /// Optional: when the match was played. Defaults to now if omitted.
     pub played_at: Option<DateTime<Utc>>,
+    /// Optional: which league this match belongs to.
+    #[serde(default)]
+    pub league_id: Option<String>,
+}
+
+/// Request body for updating an existing match (full record replace pattern).
+///
+/// All player and score fields are required — this is a full replacement, not
+/// a partial update. This simplifies the API contract: the client sends the
+/// complete updated record and we replace everything except the immutable
+/// fields (id, recorded_by, played_at).
+#[derive(Debug, Deserialize)]
+pub struct UpdateMatchRequest {
+    pub winner1_id: String,
+    pub winner2_id: String,
+    pub loser1_id: String,
+    pub loser2_id: String,
+    pub winner_score: Option<i32>,
+    pub loser_score: Option<i32>,
+    #[serde(default)]
+    pub comment: String,
+    /// Which league this match belongs to (can be changed during edit).
+    #[serde(default)]
+    pub league_id: Option<String>,
 }

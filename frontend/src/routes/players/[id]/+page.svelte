@@ -2,10 +2,12 @@
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
 	import { getPlayerStats, getPlayers, type PlayerStats, type Player } from '$lib/api';
+	import { getLeagueCtx } from '$lib/stores/league.svelte';
 	import FlameStreak from '$lib/components/FlameStreak.svelte';
 	import StatsChart from '$lib/components/StatsChart.svelte';
 	import AchievementBadge from '$lib/components/AchievementBadge.svelte';
 
+	const leagueCtx = getLeagueCtx();
 	let stats = $state<PlayerStats | null>(null);
 	let players = $state<Player[]>([]);
 	let loading = $state(true);
@@ -13,13 +15,17 @@
 
 	$effect(() => {
 		const id = $page.params.id;
+		const _leagueId = leagueCtx.selectedId;
 		if (id) loadStats(id);
 	});
 
 	async function loadStats(id: string) {
 		loading = true;
 		try {
-			[stats, players] = await Promise.all([getPlayerStats(id), getPlayers()]);
+			[stats, players] = await Promise.all([
+				getPlayerStats(id, leagueCtx.selectedId ?? undefined),
+				getPlayers(),
+			]);
 		} catch (e: any) {
 			error = e.message;
 		} finally {

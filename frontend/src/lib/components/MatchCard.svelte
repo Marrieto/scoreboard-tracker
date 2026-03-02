@@ -5,10 +5,12 @@
 		match: m,
 		playerName,
 		playerEmoji,
+		onEdit,
 	}: {
 		match: MatchRecord;
 		playerName: (id: string) => string;
 		playerEmoji: (id: string) => string;
+		onEdit?: () => void;
 	} = $props();
 
 	function getRelativeTime(d: Date): string {
@@ -74,6 +76,9 @@
 		{/if}
 		{#if isBlowout}
 			<span class="blowout-tag">BLOWOUT</span>
+		{/if}
+		{#if onEdit}
+			<button class="edit-btn" onclick={onEdit} title="Edit match">✏️</button>
 		{/if}
 	</div>
 </div>
@@ -168,6 +173,20 @@
 		font-family: var(--font-mono);
 		font-size: 0.65rem;
 		letter-spacing: 0.05em;
+	}
+
+	.edit-btn {
+		background: none;
+		border: none;
+		cursor: pointer;
+		font-size: 0.85rem;
+		padding: 0.15rem 0.3rem;
+		border-radius: var(--radius-sm);
+		opacity: 0.5;
+		transition: opacity 0.15s;
+	}
+	.edit-btn:hover {
+		opacity: 1;
 	}
 
 	@media (max-width: 640px) {

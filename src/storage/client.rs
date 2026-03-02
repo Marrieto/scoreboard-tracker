@@ -11,6 +11,12 @@
 // Connection: We authenticate using a Storage Account name + access key
 // (the simplest approach). In production you might use Managed Identity
 // or Azure AD tokens instead.
+//
+// Tables:
+//   - players: Player profiles (name, nickname, avatar)
+//   - matches: Match records (2v2 doubles games)
+//   - users:   Authenticated users (role, linked player)
+//   - leagues: Time-bounded seasons that group matches
 
 use azure_data_tables::prelude::*;
 use azure_storage::StorageCredentials;
@@ -20,8 +26,10 @@ use crate::config::AppConfig;
 /// Names of the Azure Table Storage tables we use.
 const PLAYERS_TABLE: &str = "players";
 const MATCHES_TABLE: &str = "matches";
+const USERS_TABLE: &str = "users";
+const LEAGUES_TABLE: &str = "leagues";
 
-/// Wrapper around Azure Table Storage that provides access to our two tables.
+/// Wrapper around Azure Table Storage that provides access to our four tables.
 ///
 /// This is cheap to clone (the inner client is Arc-based), so we pass it
 /// around freely in Axum's State extractor.
@@ -31,6 +39,10 @@ pub struct StorageClient {
     pub players: TableClient,
     /// Client for the "matches" table.
     pub matches: TableClient,
+    /// Client for the "users" table — stores authenticated user records.
+    pub users: TableClient,
+    /// Client for the "leagues" table — stores league/season definitions.
+    pub leagues: TableClient,
 }
 
 impl StorageClient {
@@ -56,8 +68,10 @@ impl StorageClient {
         // Get typed table clients for each of our tables.
         let players = service_client.table_client(PLAYERS_TABLE);
         let matches = service_client.table_client(MATCHES_TABLE);
+        let users = service_client.table_client(USERS_TABLE);
+        let leagues = service_client.table_client(LEAGUES_TABLE);
 
-        Self { players, matches }
+        Self { players, matches, users, leagues }
     }
 
     /// Ensure our tables exist in Azure Table Storage.
@@ -73,6 +87,8 @@ impl StorageClient {
         for (name, client) in [
             (PLAYERS_TABLE, &self.players),
             (MATCHES_TABLE, &self.matches),
+            (USERS_TABLE, &self.users),
+            (LEAGUES_TABLE, &self.leagues),
         ] {
             match client.create().await {
                 Ok(_) => tracing::info!("Created table '{name}'"),

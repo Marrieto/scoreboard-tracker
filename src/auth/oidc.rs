@@ -25,6 +25,11 @@ use crate::config::AppConfig;
 /// This is NOT the Microsoft ID token — it's our own JWT that we create after
 /// validating the Microsoft ID token. We store just the info we need so we
 /// don't have to call Microsoft on every request.
+///
+/// The `role` and `player_id` fields are populated from the users table
+/// during the login callback. They're cached in the JWT to avoid a database
+/// lookup on every API request. The trade-off is that role/player changes
+/// don't take effect until the user re-authenticates (within 24 hours).
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SessionClaims {
     /// Subject: the user's unique ID from Microsoft (OID claim).
@@ -33,6 +38,12 @@ pub struct SessionClaims {
     pub name: String,
     /// The user's email address.
     pub email: String,
+    /// User role: "admin" or "user". Determines what actions are allowed.
+    pub role: String,
+    /// Optional link to a Player profile ID. Used for match edit permissions —
+    /// if a user's player_id matches a player in a match, they can edit it.
+    #[serde(default)]
+    pub player_id: Option<String>,
     /// Expiration time (as Unix timestamp).
     pub exp: i64,
     /// Issued at (as Unix timestamp).
@@ -43,11 +54,16 @@ pub struct SessionClaims {
 ///
 /// This JWT is stored as an HTTP-only cookie and validated on each API request
 /// by the auth middleware (see middleware.rs).
+///
+/// The `role` and `player_id` params come from the users table, populated
+/// during the login callback after upserting the user record.
 pub fn create_session_token(
     config: &AppConfig,
     user_id: &str,
     name: &str,
     email: &str,
+    role: &str,
+    player_id: Option<String>,
 ) -> Result<String, jsonwebtoken::errors::Error> {
     let now = Utc::now();
     // Sessions last 24 hours. After that, the user must re-authenticate.
@@ -57,6 +73,8 @@ pub fn create_session_token(
         sub: user_id.to_string(),
         name: name.to_string(),
         email: email.to_string(),
+        role: role.to_string(),
+        player_id,
         exp: exp.timestamp(),
         iat: now.timestamp(),
     };

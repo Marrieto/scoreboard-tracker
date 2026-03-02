@@ -1,19 +1,32 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { getLeaderboard, getMatches, type LeaderboardEntry, type MatchRecord } from '$lib/api';
+	import { getLeagueCtx } from '$lib/stores/league.svelte';
 
+	const leagueCtx = getLeagueCtx();
 	let entries = $state<LeaderboardEntry[]>([]);
 	let matches = $state<MatchRecord[]>([]);
 	let loading = $state(true);
 
-	onMount(async () => {
+	async function loadData() {
+		loading = true;
 		try {
-			[entries, matches] = await Promise.all([getLeaderboard(), getMatches()]);
+			const lid = leagueCtx.selectedId ?? undefined;
+			[entries, matches] = await Promise.all([getLeaderboard(lid), getMatches(undefined, lid)]);
 		} catch {
 			// silently fail
 		} finally {
 			loading = false;
 		}
+	}
+
+	onMount(() => {
+		loadData();
+	});
+
+	$effect(() => {
+		const _id = leagueCtx.selectedId;
+		loadData();
 	});
 
 	// Shame stats computed from leaderboard data

@@ -3,6 +3,11 @@
 // Similar to players.rs but for match records. The key difference is the
 // reverse-timestamp RowKey strategy that gives us newest-first ordering
 // for free from Azure Table Storage's default ascending sort.
+//
+// New in this version:
+//   - get_match: Point read of a single match by ID (for editing).
+//   - update_match: Replace an existing match record (for corrections).
+//   - Forbidden error variant for authorization failures.
 
 use futures::StreamExt;
 
@@ -10,10 +15,17 @@ use crate::models::match_record::{MatchEntity, MatchRecord, MATCH_PARTITION_KEY}
 use crate::storage::client::StorageClient;
 
 /// Errors that can occur during match storage operations.
+///
+/// The `Forbidden` variant is used when a user tries to edit a match they
+/// don't have permission to modify. This is checked in the route handler,
+/// but we define the error here so the handler can use `?` ergonomically.
 #[derive(Debug, thiserror::Error)]
 pub enum MatchStorageError {
     #[error("Match '{0}' not found")]
     NotFound(String),
+
+    #[error("Forbidden: {0}")]
+    Forbidden(String),
 
     #[error("Azure Table Storage error: {0}")]
     Azure(String),
@@ -72,6 +84,33 @@ pub async fn list_matches(
     Ok(matches)
 }
 
+/// Get a single match by its ID (RowKey).
+///
+/// This is a point read — the fastest possible query in Azure Table Storage.
+/// Used when editing a match to fetch the current record.
+pub async fn get_match(
+    storage: &StorageClient,
+    match_id: &str,
+) -> Result<MatchRecord, MatchStorageError> {
+    let response = storage
+        .matches
+        .partition_key_client(MATCH_PARTITION_KEY)
+        .entity_client(match_id)
+        .get::<MatchEntity>()
+        .await
+        .map_err(|e| {
+            let msg = format!("{e}");
+            if msg.contains("ResourceNotFound") || msg.contains("404") {
+                MatchStorageError::NotFound(match_id.to_string())
+            } else {
+                MatchStorageError::Azure(msg)
+            }
+        })?;
+
+    MatchRecord::try_from(response.entity)
+        .map_err(|e| MatchStorageError::Azure(format!("Failed to parse match: {e}")))
+}
+
 /// Create (record) a new match.
 pub async fn create_match(
     storage: &StorageClient,
@@ -86,6 +125,32 @@ pub async fn create_match(
             .map_err(|e| MatchStorageError::Azure(format!("{e}")))?
             .await
             .map_err(|e| MatchStorageError::Azure(format!("{e}")))?;
+
+    Ok(record)
+}
+
+/// Update an existing match record (full replacement).
+///
+/// Uses `insert_or_replace` to overwrite the entire entity. The caller must
+/// ensure the match record has the correct ID (RowKey) — this function does
+/// not generate a new ID.
+///
+/// Authorization checks (can this user edit this match?) happen in the route
+/// handler, not here. The storage layer is concerned only with persistence.
+pub async fn update_match(
+    storage: &StorageClient,
+    record: MatchRecord,
+) -> Result<MatchRecord, MatchStorageError> {
+    let entity = MatchEntity::from(record.clone());
+
+    storage
+        .matches
+        .partition_key_client(MATCH_PARTITION_KEY)
+        .entity_client(&entity.row_key)
+        .insert_or_replace(&entity)
+        .map_err(|e| MatchStorageError::Azure(format!("{e}")))?
+        .await
+        .map_err(|e| MatchStorageError::Azure(format!("{e}")))?;
 
     Ok(record)
 }

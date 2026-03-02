@@ -5,13 +5,19 @@
 //
 // The leaderboard ranks players by win rate (with a minimum number of games
 // to avoid someone being #1 with 1 win and 0 losses).
+//
+// League filtering:
+//   All endpoints accept an optional `league_id` query parameter. When provided,
+//   only matches belonging to that league are used for stat computation. When
+//   omitted, all matches are included (all-time view). This filtering happens
+//   in-memory after fetching all matches — fine for our small dataset.
 
 use axum::{
     Json,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     response::IntoResponse,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use crate::models::match_record::MatchRecord;
@@ -84,6 +90,10 @@ pub struct RivalryEntry {
 }
 
 /// Unified error type for leaderboard endpoints.
+///
+/// Uses `#[from]` to auto-implement `From<PlayerStorageError>` and
+/// `From<MatchStorageError>`, allowing the `?` operator to convert both
+/// error types into `StatsError` transparently.
 #[derive(Debug, thiserror::Error)]
 pub enum StatsError {
     #[error("{0}")]
@@ -101,12 +111,40 @@ impl IntoResponse for StatsError {
     }
 }
 
+/// Query parameters for league filtering on stats endpoints.
+///
+/// All leaderboard/stats endpoints accept this optional filter.
+/// When `league_id` is `Some`, only matches in that league are counted.
+/// When `None`, all matches are included (all-time stats).
+#[derive(Deserialize)]
+pub struct StatsQuery {
+    pub league_id: Option<String>,
+}
+
+/// Filter matches by league ID (if provided).
+///
+/// This is a shared helper used by all stats endpoints. It filters in-memory,
+/// which is fine for our small dataset size.
+fn filter_by_league(matches: Vec<MatchRecord>, league_id: &Option<String>) -> Vec<MatchRecord> {
+    match league_id {
+        Some(lid) => matches
+            .into_iter()
+            .filter(|m| m.league_id.as_deref() == Some(lid.as_str()))
+            .collect(),
+        None => matches,
+    }
+}
+
 /// GET /api/leaderboard — Ranked player list with stats.
+///
+/// Accepts optional `?league_id=xxx` to filter stats to a specific league.
 pub async fn get_leaderboard(
     State(storage): State<StorageClient>,
+    Query(query): Query<StatsQuery>,
 ) -> Result<Json<Vec<LeaderboardEntry>>, StatsError> {
     let all_players = players::list_players(&storage).await?;
     let all_matches = matches::list_matches(&storage, None).await?;
+    let all_matches = filter_by_league(all_matches, &query.league_id);
 
     // Count wins/losses per player and track streaks.
     let mut wins: HashMap<&str, u32> = HashMap::new();
@@ -176,13 +214,17 @@ pub async fn get_leaderboard(
     Ok(Json(entries))
 }
 
-/// GET /api/players/:id/stats — Detailed stats for one player.
+/// GET /api/players/{id}/stats — Detailed stats for one player.
+///
+/// Accepts optional `?league_id=xxx` to filter stats to a specific league.
 pub async fn get_player_stats(
     State(storage): State<StorageClient>,
     Path(player_id): Path<String>,
+    Query(query): Query<StatsQuery>,
 ) -> Result<Json<PlayerStats>, StatsError> {
     let player = players::get_player(&storage, &player_id).await?;
     let all_matches = matches::list_matches(&storage, None).await?;
+    let all_matches = filter_by_league(all_matches, &query.league_id);
 
     let mut wins = 0u32;
     let mut losses = 0u32;
@@ -311,11 +353,15 @@ pub async fn get_player_stats(
 }
 
 /// GET /api/rivalries — Head-to-head records between all player pairs.
+///
+/// Accepts optional `?league_id=xxx` to filter stats to a specific league.
 pub async fn get_rivalries(
     State(storage): State<StorageClient>,
+    Query(query): Query<StatsQuery>,
 ) -> Result<Json<Vec<RivalryEntry>>, StatsError> {
     let all_players = players::list_players(&storage).await?;
     let all_matches = matches::list_matches(&storage, None).await?;
+    let all_matches = filter_by_league(all_matches, &query.league_id);
 
     let player_names: HashMap<&str, &str> = all_players
         .iter()

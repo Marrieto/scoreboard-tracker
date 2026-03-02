@@ -1,26 +1,44 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { getLeaderboard, type LeaderboardEntry } from '$lib/api';
+	import { getLeagueCtx } from '$lib/stores/league.svelte';
 	import Leaderboard from '$lib/components/Leaderboard.svelte';
 
+	const leagueCtx = getLeagueCtx();
 	let entries = $state<LeaderboardEntry[]>([]);
 	let loading = $state(true);
 	let error = $state('');
 
-	onMount(async () => {
+	async function loadData() {
+		loading = true;
+		error = '';
 		try {
-			entries = await getLeaderboard();
+			entries = await getLeaderboard(leagueCtx.selectedId ?? undefined);
 		} catch (e: any) {
 			error = e.message;
 		} finally {
 			loading = false;
 		}
+	}
+
+	onMount(() => {
+		loadData();
+	});
+
+	// Re-fetch when league selection changes
+	$effect(() => {
+		const _id = leagueCtx.selectedId;
+		loadData();
 	});
 </script>
 
 <div class="page-header">
 	<h1 class="page-title">LEADERBOARD</h1>
-	<p class="page-subtitle">Who rules the court?</p>
+	<p class="page-subtitle">
+		{leagueCtx.selectedId
+			? leagueCtx.leagues.find(l => l.id === leagueCtx.selectedId)?.name ?? 'League'
+			: 'Who rules the court?'}
+	</p>
 </div>
 
 {#if loading}

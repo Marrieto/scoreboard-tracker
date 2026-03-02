@@ -22,6 +22,7 @@ export interface MatchRecord {
 	comment: string;
 	recorded_by: string;
 	played_at: string;
+	league_id: string | null;
 }
 
 export interface LeaderboardEntry {
@@ -70,6 +71,27 @@ export interface AuthInfo {
 	user_id?: string;
 	name?: string;
 	email?: string;
+	role?: string;
+	player_id?: string | null;
+}
+
+export interface User {
+	oid: string;
+	name: string;
+	email: string;
+	role: string;
+	player_id: string | null;
+	created_at: string;
+}
+
+export interface League {
+	id: string;
+	name: string;
+	description: string;
+	created_by: string;
+	status: string;
+	created_at: string;
+	closed_at: string | null;
 }
 
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
@@ -103,8 +125,13 @@ export const deletePlayer = (id: string) =>
 	apiFetch<void>(`/api/players/${id}`, { method: 'DELETE' });
 
 // Matches
-export const getMatches = (limit?: number) =>
-	apiFetch<MatchRecord[]>(`/api/matches${limit ? `?limit=${limit}` : ''}`);
+export const getMatches = (limit?: number, leagueId?: string) => {
+	const params = new URLSearchParams();
+	if (limit) params.set('limit', String(limit));
+	if (leagueId) params.set('league_id', leagueId);
+	const qs = params.toString();
+	return apiFetch<MatchRecord[]>(`/api/matches${qs ? `?${qs}` : ''}`);
+};
 export const createMatch = (data: {
 	winner1_id: string;
 	winner2_id: string;
@@ -113,11 +140,51 @@ export const createMatch = (data: {
 	winner_score?: number;
 	loser_score?: number;
 	comment?: string;
+	league_id?: string;
 }) => apiFetch<MatchRecord>('/api/matches', { method: 'POST', body: JSON.stringify(data) });
+export const updateMatch = (id: string, data: {
+	winner1_id: string;
+	winner2_id: string;
+	loser1_id: string;
+	loser2_id: string;
+	winner_score?: number | null;
+	loser_score?: number | null;
+	comment?: string;
+	league_id?: string | null;
+}) => apiFetch<MatchRecord>(`/api/matches/${id}`, { method: 'PUT', body: JSON.stringify(data) });
 export const deleteMatch = (id: string) =>
 	apiFetch<void>(`/api/matches/${id}`, { method: 'DELETE' });
 
 // Leaderboard & Stats
-export const getLeaderboard = () => apiFetch<LeaderboardEntry[]>('/api/leaderboard');
-export const getPlayerStats = (id: string) => apiFetch<PlayerStats>(`/api/players/${id}/stats`);
-export const getRivalries = () => apiFetch<RivalryEntry[]>('/api/rivalries');
+export const getLeaderboard = (leagueId?: string) => {
+	const qs = leagueId ? `?league_id=${leagueId}` : '';
+	return apiFetch<LeaderboardEntry[]>(`/api/leaderboard${qs}`);
+};
+export const getPlayerStats = (id: string, leagueId?: string) => {
+	const qs = leagueId ? `?league_id=${leagueId}` : '';
+	return apiFetch<PlayerStats>(`/api/players/${id}/stats${qs}`);
+};
+export const getRivalries = (leagueId?: string) => {
+	const qs = leagueId ? `?league_id=${leagueId}` : '';
+	return apiFetch<RivalryEntry[]>(`/api/rivalries${qs}`);
+};
+
+// Users (admin)
+export const getUsers = () => apiFetch<User[]>('/api/users');
+export const updateUserRole = (oid: string, role: string) =>
+	apiFetch<User>(`/api/users/${oid}/role`, { method: 'PUT', body: JSON.stringify({ role }) });
+export const linkPlayer = (oid: string, playerId: string | null) =>
+	apiFetch<User>(`/api/users/${oid}/player`, {
+		method: 'PUT',
+		body: JSON.stringify({ player_id: playerId }),
+	});
+
+// Leagues
+export const getLeagues = () => apiFetch<League[]>('/api/leagues');
+export const getLeague = (id: string) => apiFetch<League>(`/api/leagues/${id}`);
+export const createLeague = (data: { id: string; name: string; description?: string }) =>
+	apiFetch<League>('/api/leagues', { method: 'POST', body: JSON.stringify(data) });
+export const updateLeague = (id: string, data: { name?: string; description?: string }) =>
+	apiFetch<League>(`/api/leagues/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+export const closeLeague = (id: string) =>
+	apiFetch<League>(`/api/leagues/${id}/close`, { method: 'POST' });
