@@ -128,6 +128,61 @@ The app is accessible at `http://localhost:3000`.
 | `SESSION_SECRET` | Secret for signing session JWTs | `random-secret-string` |
 | `PORT` | Server port (default 3000) | `3000` |
 
+## 🚢 Deploying to Another Machine via SSH
+
+### 1. Build and export the Docker image
+
+```bash
+docker build -t scoreboard .
+docker save scoreboard -o scoreboard.tar
+```
+
+### 2. Copy the image and env file to the remote machine
+
+```bash
+scp scoreboard.tar user@remote-host:/path/to/destination/
+scp .env user@remote-host:/path/to/destination/
+```
+
+### 3. Load the image on the remote machine
+
+```bash
+ssh user@remote-host
+cd /path/to/destination
+docker load -i scoreboard.tar
+```
+
+### 4. Run the container with the env file
+
+```bash
+docker run -d -p 3000:3000 --env-file .env --restart unless-stopped --name scoreboard scoreboard
+```
+
+The `--restart unless-stopped` flag ensures the container automatically restarts on reboot (as long as Docker itself is enabled as a system service). It will restart in all cases except when you explicitly stop it with `docker stop`.
+
+### 5. Make sure Docker starts on boot
+
+```bash
+sudo systemctl enable docker
+```
+
+### Restart policy options
+
+| Policy | Behavior |
+|--------|----------|
+| `--restart no` | Never restart (default) |
+| `--restart on-failure` | Restart only if the container exits with a non-zero code |
+| `--restart always` | Always restart, including on reboot |
+| `--restart unless-stopped` | Like `always`, but won't restart if you manually stopped it |
+
+### Updating an existing container's restart policy
+
+If the container is already running without a restart policy:
+
+```bash
+docker update --restart unless-stopped scoreboard
+```
+
 ## Project Structure
 
 ```
