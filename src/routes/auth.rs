@@ -217,9 +217,10 @@ pub async fn callback(
     // Set the session cookie and redirect to the home page.
     // HttpOnly: prevents JavaScript from reading the cookie (XSS protection).
     // SameSite=Lax: cookie sent on top-level navigations (needed for OIDC redirect).
-    // Secure: only sent over HTTPS (omitted in development).
+    // Secure: only sent over HTTPS (added automatically when APP_URL is https).
+    let secure_flag = if config.app_url.starts_with("https://") { "; Secure" } else { "" };
     let cookie_value = format!(
-        "{SESSION_COOKIE_NAME}={session_token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400"
+        "{SESSION_COOKIE_NAME}={session_token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400{secure_flag}"
     );
 
     (
@@ -276,10 +277,13 @@ pub async fn me(
 }
 
 /// POST /api/auth/logout — Clear the session cookie.
-pub async fn logout() -> Response {
+pub async fn logout(
+    Extension(config): Extension<AppConfig>,
+) -> Response {
     // Set the cookie with an expired Max-Age to delete it.
+    let secure_flag = if config.app_url.starts_with("https://") { "; Secure" } else { "" };
     let cookie_value =
-        format!("{SESSION_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0");
+        format!("{SESSION_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0{secure_flag}");
 
     (
         StatusCode::OK,

@@ -5,19 +5,21 @@ A fun internal web app for tracking pickleball match results, leaderboards, stat
 ## Architecture
 
 ```
-┌─────────────────────────────────────┐
-│         Docker Container            │
-│  ┌──────────────────────────────┐   │
-│  │   Axum (Rust) HTTP Server    │   │
-│  │  /api/*  → JSON REST API     │   │
-│  │  /*      → SvelteKit SPA     │   │
-│  └──────────┬───────────────────┘   │
-│             │ HTTPS                 │
-└─────────────┼───────────────────────┘
-              ▼
-   ┌─────────────────────┐
-   │  Azure Table Storage │
-   └─────────────────────┘
+┌──────────────────────────────────────────────────┐
+│              Docker Compose                      │
+│                                                  │
+│  ┌───────────┐       ┌────────────────────────┐  │
+│  │   Caddy   │ :3000 │  Axum (Rust) Server    │  │
+│  │  (HTTPS)  │──────▶│  /api/*  → REST API    │  │
+│  │  :443     │       │  /*      → SvelteKit   │  │
+│  └───────────┘       └───────────┬────────────┘  │
+│                                  │               │
+└──────────────────────────────────┼───────────────┘
+                                   │ HTTPS
+                                   ▼
+                        ┌─────────────────────┐
+                        │  Azure Table Storage │
+                        └─────────────────────┘
 ```
 
 - **Backend**: Rust (Axum) — serves the REST API and static frontend files
@@ -69,15 +71,22 @@ npm run dev
 
 ## Docker Deployment
 
-### Build
+### With HTTPS (recommended)
+
+Uses Caddy as a reverse proxy with automatic TLS. For LAN IPs, Caddy generates a self-signed certificate (`tls internal`).
+
+```bash
+docker compose up --build -d
+```
+
+The app is accessible at `https://<your-ip>` (port 443).
+
+Edit the `Caddyfile` to change the domain/IP. Update `APP_URL` in `.env` to match.
+
+### Without HTTPS (plain HTTP)
 
 ```bash
 docker build -t scoreboard .
-```
-
-### Run
-
-```bash
 docker run -p 3000:3000 --env-file .env scoreboard
 ```
 
@@ -130,32 +139,33 @@ The app is accessible at `http://localhost:3000`.
 
 ## 🚢 Deploying to Another Machine via SSH
 
-### 1. Build and export the Docker image
+### 1. Copy the project files to the remote machine
 
 ```bash
-docker build -t scoreboard .
-docker save scoreboard -o scoreboard.tar
+scp -r . user@remote-host:/path/to/destination/
+# Or copy just the essentials:
+scp .env Caddyfile docker-compose.yml Dockerfile user@remote-host:/path/to/destination/
+scp -r src/ frontend/ Cargo.toml Cargo.lock user@remote-host:/path/to/destination/
 ```
 
-### 2. Copy the image and env file to the remote machine
-
-```bash
-scp scoreboard.tar user@remote-host:/path/to/destination/
-scp .env user@remote-host:/path/to/destination/
-```
-
-### 3. Load the image on the remote machine
+### 2. Start the stack on the remote machine
 
 ```bash
 ssh user@remote-host
 cd /path/to/destination
-docker load -i scoreboard.tar
+docker compose up --build -d
 ```
 
-### 4. Run the container with the env file
+### Alternative: pre-built image transfer
 
 ```bash
-docker run -d -p 3000:3000 --env-file .env --restart unless-stopped --name scoreboard scoreboard
+# Build locally
+docker build -t scoreboard .
+docker save scoreboard -o scoreboard.tar
+
+# Copy and load on remote
+scp scoreboard.tar .env Caddyfile docker-compose.yml user@remote-host:/path/to/destination/
+ssh user@remote-host "cd /path/to/destination && docker load -i scoreboard.tar && docker compose up -d"
 ```
 
 The `--restart unless-stopped` flag ensures the container automatically restarts on reboot (as long as Docker itself is enabled as a system service). It will restart in all cases except when you explicitly stop it with `docker stop`.
@@ -199,5 +209,7 @@ scoreboard/
 │       ├── routes/         # Pages (leaderboard, matches, players, hall-of-shame)
 │       └── lib/            # Components, API client, stores, sounds
 ├── Dockerfile              # Multi-stage build
+├── docker-compose.yml      # Caddy + app stack
+├── Caddyfile               # HTTPS reverse proxy config
 └── .env.example            # Environment variable template
 ```

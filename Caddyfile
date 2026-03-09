@@ -1,0 +1,4 @@
+https://172.16.11.87 {
+	tls internal
+	reverse_proxy scoreboard:3000
+}
