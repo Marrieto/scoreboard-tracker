@@ -24,7 +24,8 @@ use serde::Deserialize;
 
 use crate::auth::middleware::SESSION_COOKIE_NAME;
 use crate::auth::oidc::{
-    SessionClaims, authorize_url, create_session_token, decode_id_token_claims, exchange_code,
+    authorize_url, create_session_token, decode_id_token_claims, exchange_code,
+    validate_session_token,
 };
 use crate::config::AppConfig;
 use crate::models::user::User;
@@ -236,11 +237,29 @@ pub async fn callback(
 /// This endpoint is called by the frontend to check if the user is logged in
 /// and to display their name/email. Now also returns role and player_id so
 /// the frontend can show/hide admin features and determine edit permissions.
+///
+/// Note: This route is on the public auth router (no `require_auth` middleware),
+/// so we manually extract and validate the session cookie here.
 pub async fn me(
-    claims: Option<Extension<SessionClaims>>,
+    Extension(config): Extension<AppConfig>,
+    headers: axum::http::HeaderMap,
 ) -> Response {
+    // Manually extract and validate the session cookie since this route
+    // doesn't go through the require_auth middleware.
+    let claims = headers
+        .get(header::COOKIE)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|cookies| {
+            cookies
+                .split(';')
+                .map(|c| c.trim())
+                .find(|c| c.starts_with(&format!("{SESSION_COOKIE_NAME}=")))
+                .map(|c| c[SESSION_COOKIE_NAME.len() + 1..].to_string())
+        })
+        .and_then(|token| validate_session_token(&config, &token));
+
     match claims {
-        Some(Extension(claims)) => Json(serde_json::json!({
+        Some(claims) => Json(serde_json::json!({
             "authenticated": true,
             "user_id": claims.sub,
             "name": claims.name,
